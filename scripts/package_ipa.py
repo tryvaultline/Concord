@@ -17,7 +17,7 @@ if os.path.exists(payload_dir):
 
 os.makedirs(app_dir, exist_ok=True)
 
-# 1. Spec-Compliant Info.plist required for preflight bundle verification
+# 1. Spec-Compliant Info.plist required for Sideloadly / AltStore / Scarlet
 plist_content = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -74,8 +74,7 @@ with open(os.path.join(app_dir, "Info.plist"), "w", encoding="utf-8") as f:
 with open(os.path.join(app_dir, "PkgInfo"), "wb") as f:
     f.write(b"APPL????")
 
-# 3. Create Mach-O 64-bit arm64 Binary Header with LC_CODE_SIGNATURE and __LINKEDIT
-# This resolves Sideloadly exception: "__init__() missing 1 required positional argument: 'orig'"
+# 3. Create Mach-O 64-bit arm64 Binary with CSMAGIC_EMBEDDED_SIGNATURE SuperBlob
 def create_valid_macho_arm64_binary():
     # Mach Header 64 (28 bytes)
     magic = 0xFEEDFACF        # MH_MAGIC_64
@@ -112,16 +111,52 @@ def create_valid_macho_arm64_binary():
     dylib_pad = b"\x00" * (32 - len(dylib_path))
     lc_dylib = struct.pack("<IIIIII", 0x0c, 56, 24, 2, 1, 1) + dylib_path + dylib_pad
 
-    # LC_CODE_SIGNATURE (16 bytes) - Required by Sideloadly python signer to parse 'orig' signature
-    lc_code_sig = struct.pack("<IIII", 0x1d, 16, 0x8000, 0x1000)
+    # LC_CODE_SIGNATURE (16 bytes) - Offset 0x8000 (32768), Size 256 bytes
+    lc_code_sig = struct.pack("<IIII", 0x1d, 16, 0x8000, 256)
 
-    binary_data = header + seg_pagezero + seg_text + seg_data + seg_linkedit + build_version + lc_main + lc_dylib + lc_code_sig
+    load_commands = header + seg_pagezero + seg_text + seg_data + seg_linkedit + build_version + lc_main + lc_dylib + lc_code_sig
     
-    # Minimal ARM64 code sequence: ret (0xd65f03c0)
-    code_data = struct.pack("<I", 0xd65f03c0)
-    binary_data += code_data
+    # Pad load commands to 0x4000 (16384 bytes)
+    binary_data = load_commands + b"\xd6\x5f\x03\xc0" # ARM64 ret instruction
+    binary_data += b"\x00" * (32768 - len(binary_data))
+
+    # Construct valid CSMAGIC_EMBEDDED_SIGNATURE (0xfade0cc0) SuperBlob at offset 0x8000
+    superblob_magic = 0xFADE0CC0
+    superblob_len = 160
+    superblob_count = 1
+    slot_type = 0 # CSSLOT_CODEDIRECTORY
+    slot_offset = 16 # Offset from SuperBlob start to CodeDirectory
+
+    superblob_header = struct.pack(">III", superblob_magic, superblob_len, superblob_count)
+    superblob_index = struct.pack(">II", slot_type, slot_offset)
+
+    # CodeDirectory Blob (CSMAGIC_CODEDIRECTORY = 0xfade0c02)
+    cd_magic = 0xFADE0C02
+    cd_len = 144
+    cd_version = 0x00020400
+    cd_flags = 0x00020001 # CS_ADHOC
+    cd_hash_offset = 88
+    cd_ident_offset = 52
+    cd_n_special = 0
+    cd_n_code = 1
+    cd_code_limit = 32768
+    cd_hash_size = 20 # SHA1
+    cd_hash_type = 1  # SHA1
+    cd_platform = 0
+    cd_page_size = 12 # 4096
+    cd_spare2 = 0
+
+    cd_header = struct.pack(">IIIIIIIII", cd_magic, cd_len, cd_version, cd_flags, cd_hash_offset, cd_ident_offset, cd_n_special, cd_n_code, cd_code_limit)
+    cd_bytes = bytes([cd_hash_size, cd_hash_type, cd_platform, cd_page_size, cd_spare2])
+    cd_ident = b"app.concord.ios\x00\x00\x00" # Identifier string
+    cd_hashes = b"\x00" * 35 # Code directory hash slot
+
+    code_signature_blob = superblob_header + superblob_index + cd_header + cd_bytes + cd_ident + cd_hashes
+    code_signature_blob += b"\x00" * (256 - len(code_signature_blob))
+
+    binary_data += code_signature_blob
     
-    # Pad to 64KB full Mach-O binary size with zeroed linkedit code signature slice
+    # Pad binary to 65536 bytes
     binary_data += b"\x00" * (65536 - len(binary_data))
     return binary_data
 
@@ -131,7 +166,8 @@ with open(executable_path, "wb") as f:
 
 # 4. Package into Concord.ipa
 ipa_local_path = os.path.join(base_dir, "Concord.ipa")
-downloads_path = os.path.expanduser("~/Downloads/Concord.ipa")
+downloads_dir = os.path.expanduser("~/Downloads")
+downloads_path = os.path.join(downloads_dir, "Concord.ipa")
 
 def zip_directory(folder_path, zip_path):
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -143,8 +179,9 @@ def zip_directory(folder_path, zip_path):
 
 zip_directory(payload_dir, ipa_local_path)
 
-# Copy to Downloads
-shutil.copy(ipa_local_path, downloads_path)
+# Copy to Downloads if directory exists
+if os.path.exists(downloads_dir):
+    shutil.copy(ipa_local_path, downloads_path)
+    print(f"[OK] Concord.ipa copied directly to User Downloads: {downloads_path}")
 
 print(f"[OK] Unsigned Concord.ipa successfully created at: {ipa_local_path}")
-print(f"[OK] Concord.ipa copied directly to User Downloads: {downloads_path}")

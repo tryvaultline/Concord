@@ -8,7 +8,7 @@ on:
 jobs:
   build-unsigned-ipa:
     name: Fast Build Concord.ipa (Unsigned Sideload)
-    runs-on: ubuntu-latest
+    runs-on: macos-14
 
     steps:
       - name: Checkout Codebase
