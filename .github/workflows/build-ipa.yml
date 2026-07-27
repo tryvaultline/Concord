@@ -30,9 +30,6 @@ jobs:
         working-directory: clients/ios
         run: Scripts/check_xcode_version.py --relaxed
 
-      - name: Download required iOS platform
-        run: xcodebuild -downloadPlatform iOS
-
       - name: Set up Ruby build tools
         uses: ruby/setup-ruby@v1
         with:
