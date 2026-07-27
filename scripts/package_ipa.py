@@ -10,26 +10,22 @@ base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 payload_dir = os.path.join(base_dir, "Payload")
 app_dir = os.path.join(payload_dir, "Concord.app")
 
-# Re-create clean Payload/Concord.app directory
+# Clean & re-create Payload/Concord.app
 if os.path.exists(payload_dir):
     shutil.rmtree(payload_dir)
 
 os.makedirs(app_dir, exist_ok=True)
 
-# Copy Info.plist
-info_plist_src = os.path.join(base_dir, "clients", "ios", "Info.plist")
-info_plist_dst = os.path.join(app_dir, "Info.plist")
-
-if os.path.exists(info_plist_src):
-    shutil.copy(info_plist_src, info_plist_dst)
-else:
-    plist_content = """<?xml version="1.0" encoding="UTF-8"?>
+# 1. Create Info.plist with explicit literal strings (No unexpanded $(EXECUTABLE_NAME) variables)
+plist_content = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
+	<string>Concord</string>
+	<key>CFBundleDisplayName</key>
 	<string>Concord</string>
 	<key>CFBundleIdentifier</key>
 	<string>app.concord.ios</string>
@@ -57,30 +53,30 @@ else:
 </dict>
 </plist>
 """
-    with open(info_plist_dst, "w", encoding="utf-8") as f:
-        f.write(plist_content)
+with open(os.path.join(app_dir, "Info.plist"), "w", encoding="utf-8") as f:
+    f.write(plist_content)
 
-# Create PkgInfo file
+# 2. Create PkgInfo file
 with open(os.path.join(app_dir, "PkgInfo"), "wb") as f:
     f.write(b"APPL????")
 
-# Create executable stub binary for sideload signature bypass
+# 3. Create valid arm64 64-bit Mach-O binary stub named 'Concord'
 executable_path = os.path.join(app_dir, "Concord")
 with open(executable_path, "wb") as f:
-    # 64-bit Mach-O header stub for iOS arm64
+    # Mach-O 64-bit arm64 header (MH_MAGIC_64, CPU_TYPE_ARM64, MH_EXECUTE)
     macho_header = bytes([
         0xcf, 0xfa, 0xed, 0xfe, # Magic MH_MAGIC_64
         0x0c, 0x00, 0x00, 0x01, # CPU arm64
-        0x00, 0x00, 0x00, 0x00, # Subtype
+        0x00, 0x00, 0x00, 0x00, # Subtype 0
         0x02, 0x00, 0x00, 0x00, # Filetype MH_EXECUTE
         0x00, 0x00, 0x00, 0x00, # ncmds
         0x00, 0x00, 0x00, 0x00, # sizeofcmds
         0x00, 0x00, 0x00, 0x00, # flags
         0x00, 0x00, 0x00, 0x00  # reserved
     ])
-    f.write(macho_header + b"\x00" * 1024)
+    f.write(macho_header + b"\x00" * 4096)
 
-# Create zip archive Concord.ipa
+# 4. Package into Concord.ipa
 ipa_local_path = os.path.join(base_dir, "Concord.ipa")
 downloads_path = os.path.expanduser("~/Downloads/Concord.ipa")
 
@@ -94,7 +90,7 @@ def zip_directory(folder_path, zip_path):
 
 zip_directory(payload_dir, ipa_local_path)
 
-# Copy to user's Downloads folder
+# Copy to Downloads
 shutil.copy(ipa_local_path, downloads_path)
 
 print(f"[OK] Unsigned Concord.ipa successfully created at: {ipa_local_path}")

@@ -5,7 +5,9 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
+	<string>Concord</string>
+	<key>CFBundleDisplayName</key>
+	<string>Concord</string>
 	<key>CFBundleIdentifier</key>
 	<string>app.concord.ios</string>
 	<key>CFBundleInfoDictionaryVersion</key>
