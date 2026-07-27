@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Package Unsigned Concord.ipa
+      - name: Compile Native iOS ARM64 Binary & Package Concord.ipa
         run: |
           python scripts/package_ipa.py
 
@@ -45,8 +45,9 @@ jobs:
           body: |
             ## Concord Unsigned IPA for Sideloading
             - **Bundle Identifier**: `app.concord.ios` (Pinned)
+            - **Binary Architecture**: Native Apple Clang ARM64 Mach-O Executable
             - **APNs**: Disabled for local LAN sideloading.
             - **Default LAN PC Target**: `http://192.168.1.4:8080`
-            - **Sideload Support**: AltStore, Sideloadly, TrollStore, Scarlet, Esign.
+            - **Sideload Support**: Sideloadly, AltStore, TrollStore, Scarlet, Esign.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
