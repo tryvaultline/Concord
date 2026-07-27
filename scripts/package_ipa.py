@@ -37,7 +37,7 @@ def main() -> int:
     parser.add_argument(
         "--output-path",
         type=Path,
-        default=ROOT / "build" / "Signal.ipa",
+        default=ROOT / "build" / "Concord.ipa",
         help="Output path for the exported IPA.",
     )
     parser.add_argument(
@@ -92,13 +92,14 @@ def main() -> int:
             ],
             cwd=IOS_ROOT,
         )
-        app_path = derived_data / "Build" / "Products" / f"{args.configuration}-iphoneos" / "Signal.app"
-        if not app_path.is_dir():
-            raise RuntimeError(f"Expected built Signal.app, found nothing at: {app_path}")
+        app_candidates = list((derived_data / "Build" / "Products").glob("*-iphoneos/Concord.app"))
+        if len(app_candidates) != 1:
+            raise RuntimeError(f"Expected one built Concord.app, found: {app_candidates}")
+        app_path = app_candidates[0]
         with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as ipa:
             for source_path in app_path.rglob("*"):
                 ipa.write(source_path, Path("Payload") / source_path.relative_to(app_path.parent))
-        print(f"[OK] Unsigned IPA created from Signal-iOS: {output_path}")
+        print(f"[OK] Unsigned IPA created from Concord: {output_path}")
         return 0
 
     if archive_path.exists():
