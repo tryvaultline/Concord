@@ -74,16 +74,16 @@ with open(os.path.join(app_dir, "Info.plist"), "w", encoding="utf-8") as f:
 with open(os.path.join(app_dir, "PkgInfo"), "wb") as f:
     f.write(b"APPL????")
 
-# 3. Create fully compliant Mach-O 64-bit arm64 Binary Header with LC_MAIN entry point
-# This fixes Sideloadly "APIInternalError (Failed to re-fetch bundle during preflight)"
+# 3. Create Mach-O 64-bit arm64 Binary Header with LC_CODE_SIGNATURE and __LINKEDIT
+# This resolves Sideloadly exception: "__init__() missing 1 required positional argument: 'orig'"
 def create_valid_macho_arm64_binary():
     # Mach Header 64 (28 bytes)
     magic = 0xFEEDFACF        # MH_MAGIC_64
     cputype = 12 | 0x01000000  # CPU_TYPE_ARM64
     cpusubtype = 0            # CPU_SUBTYPE_ARM64_ALL
     filetype = 2              # MH_EXECUTE
-    ncmds = 6                 # 6 Load commands (__PAGEZERO, __TEXT, __DATA, LC_BUILD_VERSION, LC_MAIN, LC_LOAD_DYLIB)
-    sizeofcmds = 72 + 72 + 72 + 32 + 24 + 56 # 328 bytes
+    ncmds = 7                 # 7 Load commands
+    sizeofcmds = 72 + 72 + 72 + 72 + 32 + 24 + 56 + 16 # 416 bytes
     flags = 0x00200085        # MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
     reserved = 0
 
@@ -98,10 +98,13 @@ def create_valid_macho_arm64_binary():
     # LC_SEGMENT_64: __DATA (72 bytes)
     seg_data = struct.pack("<II16sQQQQIIII", 0x19, 72, b"__DATA\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", 0x100004000, 0x4000, 0x4000, 0x4000, 3, 3, 0, 0)
 
+    # LC_SEGMENT_64: __LINKEDIT (72 bytes)
+    seg_linkedit = struct.pack("<II16sQQQQIIII", 0x19, 72, b"__LINKEDIT\x00\x00\x00\x00\x00\x00", 0x100008000, 0x4000, 0x8000, 0x4000, 1, 1, 0, 0)
+
     # LC_BUILD_VERSION (32 bytes)
     build_version = struct.pack("<IIIIII", 0x32, 32, 2, 0x000f0000, 0x000f0000, 0) + b"\x00" * 8
 
-    # LC_MAIN Entry Point (24 bytes) - Required by Sideloadly / installd preflight
+    # LC_MAIN Entry Point (24 bytes)
     lc_main = struct.pack("<IIQQ", 0x80000028, 24, 0x4000, 0)
 
     # LC_LOAD_DYLIB (56 bytes) /usr/lib/libSystem.B.dylib
@@ -109,14 +112,17 @@ def create_valid_macho_arm64_binary():
     dylib_pad = b"\x00" * (32 - len(dylib_path))
     lc_dylib = struct.pack("<IIIIII", 0x0c, 56, 24, 2, 1, 1) + dylib_path + dylib_pad
 
-    binary_data = header + seg_pagezero + seg_text + seg_data + build_version + lc_main + lc_dylib
+    # LC_CODE_SIGNATURE (16 bytes) - Required by Sideloadly python signer to parse 'orig' signature
+    lc_code_sig = struct.pack("<IIII", 0x1d, 16, 0x8000, 0x1000)
+
+    binary_data = header + seg_pagezero + seg_text + seg_data + seg_linkedit + build_version + lc_main + lc_dylib + lc_code_sig
     
     # Minimal ARM64 code sequence: ret (0xd65f03c0)
     code_data = struct.pack("<I", 0xd65f03c0)
     binary_data += code_data
     
-    # Pad to 16KB alignment
-    binary_data += b"\x00" * (16384 - len(binary_data))
+    # Pad to 64KB full Mach-O binary size with zeroed linkedit code signature slice
+    binary_data += b"\x00" * (65536 - len(binary_data))
     return binary_data
 
 executable_path = os.path.join(app_dir, "Concord")
