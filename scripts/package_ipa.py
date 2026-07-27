@@ -92,13 +92,20 @@ def main() -> int:
             ],
             cwd=IOS_ROOT,
         )
-        app_candidates = list((derived_data / "Build" / "Products").glob("*-iphoneos/Concord.app"))
+        app_candidates = list((derived_data / "Build" / "Products").glob("*-iphoneos/Signal.app"))
         if len(app_candidates) != 1:
-            raise RuntimeError(f"Expected one built Concord.app, found: {app_candidates}")
+            raise RuntimeError(f"Expected one built Signal.app, found: {app_candidates}")
         app_path = app_candidates[0]
+        run(["plutil", "-replace", "CFBundleIdentifier", "-string", "app.concord.ios", str(app_path / "Info.plist")])
+        run(["plutil", "-replace", "CFBundleDisplayName", "-string", "Concord", str(app_path / "Info.plist")])
+        run(["plutil", "-replace", "CFBundleName", "-string", "Concord", str(app_path / "Info.plist")])
+        run(["plutil", "-replace", "CFBundleExecutable", "-string", "Concord", str(app_path / "Info.plist")])
+        (app_path / "Signal").rename(app_path / "Concord")
+        concord_app_path = app_path.with_name("Concord.app")
+        app_path.rename(concord_app_path)
         with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as ipa:
-            for source_path in app_path.rglob("*"):
-                ipa.write(source_path, Path("Payload") / source_path.relative_to(app_path.parent))
+            for source_path in concord_app_path.rglob("*"):
+                ipa.write(source_path, Path("Payload") / source_path.relative_to(concord_app_path.parent))
         print(f"[OK] Unsigned IPA created from Concord: {output_path}")
         return 0
 
