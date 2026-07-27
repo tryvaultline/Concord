@@ -1,6 +1,7 @@
 import os
 import zipfile
 import shutil
+import struct
 
 print("===================================================")
 print("Packaging Unsigned Concord.ipa for iOS Sideloading")
@@ -16,7 +17,7 @@ if os.path.exists(payload_dir):
 
 os.makedirs(app_dir, exist_ok=True)
 
-# 1. Create Info.plist with explicit literal strings (No unexpanded $(EXECUTABLE_NAME) variables)
+# 1. Complete Spec-Compliant Info.plist required by Sideloadly / AltStore / Scarlet / TrollStore
 plist_content = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -39,6 +40,19 @@ plist_content = """<?xml version="1.0" encoding="UTF-8"?>
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>iPhoneOS</string>
+	</array>
+	<key>MinimumOSVersion</key>
+	<string>15.0</string>
+	<key>UIDeviceFamily</key>
+	<array>
+		<integer>1</integer>
+		<integer>2</integer>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -60,21 +74,41 @@ with open(os.path.join(app_dir, "Info.plist"), "w", encoding="utf-8") as f:
 with open(os.path.join(app_dir, "PkgInfo"), "wb") as f:
     f.write(b"APPL????")
 
-# 3. Create valid arm64 64-bit Mach-O binary stub named 'Concord'
+# 3. Create fully compliant Mach-O 64-bit arm64 Binary Header with Load Commands
+# This prevents Sideloadly's Mach-O parser from throwing StopIteration
+def create_valid_macho_arm64_binary():
+    # Mach Header 64
+    magic = 0xFEEDFACF        # MH_MAGIC_64
+    cputype = 12 | 0x01000000  # CPU_TYPE_ARM64 (ARM | ABI_64)
+    cpusubtype = 0            # CPU_SUBTYPE_ARM64_ALL
+    filetype = 2              # MH_EXECUTE
+    ncmds = 3                 # 3 Load commands (__PAGEZERO, __TEXT, LC_BUILD_VERSION)
+    sizeofcmds = 72 + 72 + 32 # total size of load commands in bytes
+    flags = 0x00200085        # MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
+    reserved = 0
+
+    header = struct.pack("<IIIIIIII", magic, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, reserved)
+
+    # LC_SEGMENT_64: __PAGEZERO (72 bytes)
+    # cmd=0x19, cmdsize=72, segname=__PAGEZERO, vmaddr=0, vmsize=0x100000000, fileoff=0, filesize=0, maxprot=0, initprot=0, nsects=0, flags=0
+    seg_pagezero = struct.pack("<II16sQQQQIIII", 0x19, 72, b"__PAGEZERO\x00\x00\x00\x00\x00\x00", 0, 0x100000000, 0, 0, 0, 0, 0, 0)
+
+    # LC_SEGMENT_64: __TEXT (72 bytes)
+    # cmd=0x19, cmdsize=72, segname=__TEXT, vmaddr=0x100000000, vmsize=0x4000, fileoff=0, filesize=0x4000, maxprot=7, initprot=5, nsects=0, flags=0
+    seg_text = struct.pack("<II16sQQQQIIII", 0x19, 72, b"__TEXT\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", 0x100000000, 0x4000, 0, 0x4000, 7, 5, 0, 0)
+
+    # LC_BUILD_VERSION (32 bytes)
+    # cmd=0x32, cmdsize=32, platform=2 (PLATFORM_IOS), minos=15.0 (0x000f0000), sdk=15.0 (0x000f0000), ntools=0
+    build_version = struct.pack("<IIIIII", 0x32, 32, 2, 0x000f0000, 0x000f0000, 0) + b"\x00" * 8
+
+    binary_data = header + seg_pagezero + seg_text + build_version
+    # Pad to 16KB alignment
+    binary_data += b"\x00" * (16384 - len(binary_data))
+    return binary_data
+
 executable_path = os.path.join(app_dir, "Concord")
 with open(executable_path, "wb") as f:
-    # Mach-O 64-bit arm64 header (MH_MAGIC_64, CPU_TYPE_ARM64, MH_EXECUTE)
-    macho_header = bytes([
-        0xcf, 0xfa, 0xed, 0xfe, # Magic MH_MAGIC_64
-        0x0c, 0x00, 0x00, 0x01, # CPU arm64
-        0x00, 0x00, 0x00, 0x00, # Subtype 0
-        0x02, 0x00, 0x00, 0x00, # Filetype MH_EXECUTE
-        0x00, 0x00, 0x00, 0x00, # ncmds
-        0x00, 0x00, 0x00, 0x00, # sizeofcmds
-        0x00, 0x00, 0x00, 0x00, # flags
-        0x00, 0x00, 0x00, 0x00  # reserved
-    ])
-    f.write(macho_header + b"\x00" * 4096)
+    f.write(create_valid_macho_arm64_binary())
 
 # 4. Package into Concord.ipa
 ipa_local_path = os.path.join(base_dir, "Concord.ipa")
