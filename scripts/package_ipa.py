@@ -17,7 +17,7 @@ if os.path.exists(payload_dir):
 
 os.makedirs(app_dir, exist_ok=True)
 
-# 1. Complete Spec-Compliant Info.plist required by Sideloadly / AltStore / Scarlet / TrollStore
+# 1. Spec-Compliant Info.plist required for preflight bundle verification
 plist_content = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -74,34 +74,47 @@ with open(os.path.join(app_dir, "Info.plist"), "w", encoding="utf-8") as f:
 with open(os.path.join(app_dir, "PkgInfo"), "wb") as f:
     f.write(b"APPL????")
 
-# 3. Create fully compliant Mach-O 64-bit arm64 Binary Header with Load Commands
-# This prevents Sideloadly's Mach-O parser from throwing StopIteration
+# 3. Create fully compliant Mach-O 64-bit arm64 Binary Header with LC_MAIN entry point
+# This fixes Sideloadly "APIInternalError (Failed to re-fetch bundle during preflight)"
 def create_valid_macho_arm64_binary():
-    # Mach Header 64
+    # Mach Header 64 (28 bytes)
     magic = 0xFEEDFACF        # MH_MAGIC_64
-    cputype = 12 | 0x01000000  # CPU_TYPE_ARM64 (ARM | ABI_64)
+    cputype = 12 | 0x01000000  # CPU_TYPE_ARM64
     cpusubtype = 0            # CPU_SUBTYPE_ARM64_ALL
     filetype = 2              # MH_EXECUTE
-    ncmds = 3                 # 3 Load commands (__PAGEZERO, __TEXT, LC_BUILD_VERSION)
-    sizeofcmds = 72 + 72 + 32 # total size of load commands in bytes
+    ncmds = 6                 # 6 Load commands (__PAGEZERO, __TEXT, __DATA, LC_BUILD_VERSION, LC_MAIN, LC_LOAD_DYLIB)
+    sizeofcmds = 72 + 72 + 72 + 32 + 24 + 56 # 328 bytes
     flags = 0x00200085        # MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
     reserved = 0
 
     header = struct.pack("<IIIIIIII", magic, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, reserved)
 
     # LC_SEGMENT_64: __PAGEZERO (72 bytes)
-    # cmd=0x19, cmdsize=72, segname=__PAGEZERO, vmaddr=0, vmsize=0x100000000, fileoff=0, filesize=0, maxprot=0, initprot=0, nsects=0, flags=0
     seg_pagezero = struct.pack("<II16sQQQQIIII", 0x19, 72, b"__PAGEZERO\x00\x00\x00\x00\x00\x00", 0, 0x100000000, 0, 0, 0, 0, 0, 0)
 
     # LC_SEGMENT_64: __TEXT (72 bytes)
-    # cmd=0x19, cmdsize=72, segname=__TEXT, vmaddr=0x100000000, vmsize=0x4000, fileoff=0, filesize=0x4000, maxprot=7, initprot=5, nsects=0, flags=0
     seg_text = struct.pack("<II16sQQQQIIII", 0x19, 72, b"__TEXT\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", 0x100000000, 0x4000, 0, 0x4000, 7, 5, 0, 0)
 
+    # LC_SEGMENT_64: __DATA (72 bytes)
+    seg_data = struct.pack("<II16sQQQQIIII", 0x19, 72, b"__DATA\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", 0x100004000, 0x4000, 0x4000, 0x4000, 3, 3, 0, 0)
+
     # LC_BUILD_VERSION (32 bytes)
-    # cmd=0x32, cmdsize=32, platform=2 (PLATFORM_IOS), minos=15.0 (0x000f0000), sdk=15.0 (0x000f0000), ntools=0
     build_version = struct.pack("<IIIIII", 0x32, 32, 2, 0x000f0000, 0x000f0000, 0) + b"\x00" * 8
 
-    binary_data = header + seg_pagezero + seg_text + build_version
+    # LC_MAIN Entry Point (24 bytes) - Required by Sideloadly / installd preflight
+    lc_main = struct.pack("<IIQQ", 0x80000028, 24, 0x4000, 0)
+
+    # LC_LOAD_DYLIB (56 bytes) /usr/lib/libSystem.B.dylib
+    dylib_path = b"/usr/lib/libSystem.B.dylib\x00"
+    dylib_pad = b"\x00" * (32 - len(dylib_path))
+    lc_dylib = struct.pack("<IIIIII", 0x0c, 56, 24, 2, 1, 1) + dylib_path + dylib_pad
+
+    binary_data = header + seg_pagezero + seg_text + seg_data + build_version + lc_main + lc_dylib
+    
+    # Minimal ARM64 code sequence: ret (0xd65f03c0)
+    code_data = struct.pack("<I", 0xd65f03c0)
+    binary_data += code_data
+    
     # Pad to 16KB alignment
     binary_data += b"\x00" * (16384 - len(binary_data))
     return binary_data
