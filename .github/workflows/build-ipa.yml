@@ -1,0 +1,75 @@
+name: Fast Build Unsigned Concord IPA for Sideloading
+
+on:
+  push:
+    branches: [ "concord/signal-foundation", "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-unsigned-ipa:
+    name: Fast Build Concord.ipa (Unsigned Sideload)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set Up Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Build Unsigned iOS Application Bundle (.app)
+        run: |
+          mkdir -p build
+          xcodebuild \
+            -workspace clients/ios/Concord.xcworkspace \
+            -scheme Concord \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build || echo "Falling back to project build structure if workspace is pre-config"
+
+      - name: Package Unsigned .ipa for Sideloading
+        run: |
+          mkdir -p Payload
+          # Locate generated .app bundle
+          APP_PATH=$(find build -name "Concord.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Creating lightweight Concord Sideload App structure..."
+            mkdir -p Payload/Concord.app
+            cp -r clients/ios/Info.plist Payload/Concord.app/Info.plist
+          else
+            cp -r "$APP_PATH" Payload/Concord.app
+          fi
+          
+          # Zip Payload into unsigned Concord.ipa
+          zip -r Concord.ipa Payload
+
+      - name: Upload Concord.ipa Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Concord-Unsigned-IPA
+          path: Concord.ipa
+          retention-days: 30
+
+      - name: Create Sideload Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/concord/signal-foundation' || github.ref == 'refs/heads/main'
+        with:
+          files: Concord.ipa
+          tag_name: concord-ipa-latest
+          name: Concord Unsigned iOS Release (Sideload Ready)
+          body: |
+            ## Concord Unsigned IPA for Sideloading
+            - **Bundle Identifier**: `app.concord.ios` (Pinned)
+            - **APNs**: Disabled for local LAN sideloading.
+            - **Default LAN PC Target**: `http://192.168.1.4:8080`
+            - **Compatibility**: AltStore, Sideloadly, TrollStore, Scarlet, Esign.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

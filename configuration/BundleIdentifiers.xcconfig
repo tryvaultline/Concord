@@ -1,12 +1,13 @@
-// Concord Xcode Build Configuration - Centralized Bundle Identifiers
+// Concord Xcode Build Configuration - Centralized Immutable Bundle Identifiers
+// DO NOT MODIFY OR ALTER BUNDLE IDENTIFIERS IN FUTURE COMMITS
 
 CONCORD_PRODUCT_NAME = Concord
 CONCORD_BUNDLE_IDENTIFIER_BASE = app.concord.ios
 
-CONCORD_BUNDLE_IDENTIFIER_APP = $(CONCORD_BUNDLE_IDENTIFIER_BASE)
-CONCORD_BUNDLE_IDENTIFIER_SHARE = $(CONCORD_BUNDLE_IDENTIFIER_BASE).share
-CONCORD_BUNDLE_IDENTIFIER_NSE = $(CONCORD_BUNDLE_IDENTIFIER_BASE).notification-service
-CONCORD_BUNDLE_IDENTIFIER_INTENTS = $(CONCORD_BUNDLE_IDENTIFIER_BASE).intents
+CONCORD_BUNDLE_IDENTIFIER_APP = app.concord.ios
+CONCORD_BUNDLE_IDENTIFIER_SHARE = app.concord.ios.share
+CONCORD_BUNDLE_IDENTIFIER_NSE = app.concord.ios.notification-service
+CONCORD_BUNDLE_IDENTIFIER_INTENTS = app.concord.ios.intents
 
 CONCORD_APP_GROUP = group.app.concord.ios
 CONCORD_KEYCHAIN_GROUP = $(AppIdentifierPrefix)app.concord.ios

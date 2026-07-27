@@ -344,10 +344,14 @@ app.get('/v1/attachments/:attachmentId', (req, res) => {
   res.json({ attachmentId, data: 'ENCRYPTED_MEDIA_STREAM' });
 });
 
-// Initialize Seed Accounts and Start Server
+// APNs Disabled Feature Flag (Temporarily Disabled for Sideload / LAN usage)
+const FEATURE_APNS_NOTIFICATIONS = false;
+
+// Initialize Seed Accounts and Start Server listening on all interfaces (0.0.0.0)
 seedTestAccounts();
 
-app.listen(PORT, () => {
-  console.log(`[CONCORD] Auth & Encryption Server active on http://localhost:${PORT}`);
-  console.log(`[CONCORD] Phone-less registration & Argon2id auth ready.`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[CONCORD] Auth & Encryption Server active on http://0.0.0.0:${PORT}`);
+  console.log(`[CONCORD] Accessible on Local LAN at http://192.168.1.4:${PORT}`);
+  console.log(`[CONCORD] Phone-less registration & Argon2id auth ready. APNs Notifications: DISABLED.`);
 });
