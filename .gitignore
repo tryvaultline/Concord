@@ -1,0 +1,26 @@
+# Concord Git Ignore Rules
+
+# Environment local secrets
+.env.local
+*.env.local
+.env.production
+*.p8
+*.pem
+*.p12
+
+# Xcode & Apple build artifacts
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+DerivedData/
+.build/
+*.xcarchive
+
+# Build & Dependencies
+node_modules/
+dist/
+target/
+Pods/
+
+# OS files
+.DS_Store
+Thumbs.db
