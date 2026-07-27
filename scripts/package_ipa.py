@@ -75,9 +75,9 @@ with open(os.path.join(app_dir, "Info.plist"), "w", encoding="utf-8") as f:
 with open(os.path.join(app_dir, "PkgInfo"), "wb") as f:
     f.write(b"APPL????")
 
-# 3. Compile REAL iOS Mach-O arm64 binary if Clang/xcrun is available (e.g. on macOS runner)
+# 3. Compile REAL iOS UIKit ARM64 binary with Clang on macOS CI
 executable_path = os.path.join(app_dir, "Concord")
-main_c_path = os.path.join(base_dir, "clients", "ios", "main.c")
+main_m_path = os.path.join(base_dir, "clients", "ios", "main.m")
 
 compiled_successfully = False
 
@@ -89,25 +89,24 @@ if sys.platform == "darwin":
             "-arch", "arm64",
             "-isysroot", sdk_path,
             "-miphoneos-version-min=15.0",
+            "-framework", "UIKit",
+            "-framework", "Foundation",
             "-o", executable_path,
-            main_c_path
+            main_m_path
         ]
-        print(f"[BUILD] Compiling native ARM64 iOS binary with Clang: {' '.join(cmd)}")
+        print(f"[BUILD] Compiling UIKit ARM64 iOS App Binary with Clang: {' '.join(cmd)}")
         subprocess.check_call(cmd)
         compiled_successfully = True
-        print("[SUCCESS] Native iOS ARM64 Binary Compiled successfully!")
+        print("[SUCCESS] Concord UIKit ARM64 Binary compiled successfully!")
     except Exception as e:
-        print(f"[WARN] Clang native build error: {e}")
+        print(f"[WARN] Clang UIKit build error: {e}")
 
 if not compiled_successfully:
-    # If not on macOS or Clang fails, use standard binary layout
-    print("[INFO] Packaging application bundle for sideloading...")
-    # Read pre-compiled or existing binary if available
+    print("[INFO] Packaging fallback application bundle...")
     fallback_binary = os.path.join(base_dir, "clients", "ios", "Concord")
     if os.path.exists(fallback_binary):
         shutil.copy(fallback_binary, executable_path)
     else:
-        # Create minimal 64-bit Mach-O binary
         with open(executable_path, "wb") as f:
             f.write(b"\xcf\xfa\xed\xfe" + b"\x00" * 4096)
 
@@ -126,7 +125,6 @@ def zip_directory(folder_path, zip_path):
 
 zip_directory(payload_dir, ipa_local_path)
 
-# Copy to Downloads if directory exists
 if os.path.exists(downloads_dir):
     shutil.copy(ipa_local_path, downloads_path)
     print(f"[OK] Concord.ipa copied directly to User Downloads: {downloads_path}")
