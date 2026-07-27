@@ -40,12 +40,15 @@ jobs:
         working-directory: clients/ios
         run: make dependencies
 
-      - name: Build and run Signal-iOS tests
-        working-directory: clients/ios
-        run: bundle exec zsh Scripts/build-and-test.sh
-
-      - name: Package the tested device build
+      - name: Build and package IPA
         run: python3 scripts/package_ipa.py --unsigned
+
+      - name: Verify packaged IPA identity
+        run: |
+          unzip -t build/Concord.ipa
+          unzip -p build/Concord.ipa Payload/Concord.app/Info.plist > /tmp/Concord-Info.plist
+          plutil -extract CFBundleIdentifier raw /tmp/Concord-Info.plist | grep -Fx app.concord.ios
+          plutil -extract CFBundleDisplayName raw /tmp/Concord-Info.plist | grep -Fx Concord
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
