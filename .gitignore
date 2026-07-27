@@ -24,3 +24,4 @@ Pods/
 # OS files
 .DS_Store
 Thumbs.db
+scripts/__pycache__/

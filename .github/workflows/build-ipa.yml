@@ -1,53 +1,66 @@
-name: Fast Build Unsigned Concord IPA for Sideloading
+name: Build and Test Signal-iOS IPA
 
 on:
   push:
-    branches: [ "concord/signal-foundation", "main", "master" ]
+    branches: ["main", "codex/**"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-unsigned-ipa:
-    name: Fast Build Concord.ipa (Unsigned Sideload)
-    runs-on: macos-14
+  build-test-and-package:
+    name: Build, test, and package unsigned IPA
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app
 
     steps:
-      - name: Checkout Codebase
+      - name: Checkout Concord and Signal-iOS
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Verify Xcode version
+        working-directory: clients/ios
+        run: Scripts/check_xcode_version.py --relaxed
+
+      - name: Download required iOS platform
+        run: xcodebuild -downloadPlatform iOS
+
+      - name: Set up Ruby build tools
+        uses: ruby/setup-ruby@v1
         with:
-          python-version: '3.12'
+          working-directory: clients/ios
+          bundler-cache: true
 
-      - name: Compile Native iOS ARM64 Binary & Package Concord.ipa
-        run: |
-          python scripts/package_ipa.py
+      - name: Fetch official Signal build dependencies
+        working-directory: clients/ios
+        run: make dependencies
 
-      - name: Upload Concord.ipa Artifact
+      - name: Build and run Signal-iOS tests
+        working-directory: clients/ios
+        run: bundle exec zsh Scripts/build-and-test.sh
+
+      - name: Package the tested device build
+        run: python3 scripts/package_ipa.py --unsigned
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Concord-Unsigned-IPA
-          path: Concord.ipa
+          name: Signal-iOS-unsigned-IPA
+          path: build/Signal.ipa
           retention-days: 30
 
-      - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v1
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/concord/signal-foundation'
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          files: Concord.ipa
-          tag_name: concord-ipa-latest
-          name: Concord Unsigned iOS Release (Sideload Ready)
-          body: |
-            ## Concord Unsigned IPA for Sideloading
-            - **Bundle Identifier**: `app.concord.ios` (Pinned)
-            - **Binary Architecture**: Native Apple Clang ARM64 Mach-O Executable
-            - **APNs**: Disabled for local LAN sideloading.
-            - **Default LAN PC Target**: `http://192.168.1.4:8080`
-            - **Sideload Support**: Sideloadly, AltStore, TrollStore, Scarlet, Esign.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: Signal-iOS-test-logs
+          path: ~/Library/Logs/Signal-CI
+          if-no-files-found: ignore

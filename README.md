@@ -23,7 +23,9 @@ It replaces telephone number authentication with **Username, Password, and Displ
 ```text
 Concord/
 ├─ clients/
-│  └─ ios/                      # Concord iOS Client (Xcode Workspace / SPM)
+│  ├─ ios/                      # Official Signal-iOS client fork (Xcode workspace + submodules)
+│  └─ ios-prototype-legacy/     # Archived pre-fork UIKit prototype; not shipped or built
+├─ archive/ios-prototype/        # Archived placeholder IPA and Payload; never ship these artifacts
 ├─ services/
 │  ├─ concord-auth/             # Phone-less Auth & Key Distribution API (Argon2id)
 │  ├─ signal-server/            # Signal Protocol backend server adapter
@@ -66,6 +68,18 @@ Concord/
 ```powershell
 .\scripts\health-check.ps1
 ```
+
+### Build the iOS client
+
+The iOS client is the official Signal-iOS workspace at `clients/ios/Signal.xcworkspace`.
+Its current product name, bundle identifier, and app icon remain unchanged. Build it on macOS/Xcode; do not use the archived prototype or a generated placeholder binary.
+
+To export a signed IPA from that workspace:
+```bash
+python3 scripts/package_ipa.py --team-id YOUR_APPLE_TEAM_ID
+```
+
+For an unsigned IPA that a sideloading tool will sign, use `python3 scripts/package_ipa.py --unsigned`.
 
 ### 4. Run End-to-End Test Suite
 ```powershell

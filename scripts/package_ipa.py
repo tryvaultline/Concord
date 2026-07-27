@@ -1,132 +1,163 @@
-import os
-import sys
-import subprocess
-import zipfile
-import shutil
+"""Package a Concord IPA from a real Signal-iOS Xcode archive.
 
-print("===================================================")
-print("Packaging Authentic Unsigned Concord.ipa for iOS Sideloading")
-print("===================================================")
-
-base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-payload_dir = os.path.join(base_dir, "Payload")
-app_dir = os.path.join(payload_dir, "Concord.app")
-
-# Clean & re-create Payload/Concord.app
-if os.path.exists(payload_dir):
-    shutil.rmtree(payload_dir)
-
-os.makedirs(app_dir, exist_ok=True)
-
-# 1. Spec-Compliant Info.plist required for Sideloadly / AltStore / Scarlet / TrollStore
-plist_content = """<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleExecutable</key>
-	<string>Concord</string>
-	<key>CFBundleDisplayName</key>
-	<string>Concord</string>
-	<key>CFBundleIdentifier</key>
-	<string>app.concord.ios</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>Concord</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>CFBundleSupportedPlatforms</key>
-	<array>
-		<string>iPhoneOS</string>
-	</array>
-	<key>MinimumOSVersion</key>
-	<string>15.0</string>
-	<key>UIDeviceFamily</key>
-	<array>
-		<integer>1</integer>
-		<integer>2</integer>
-	</array>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Concord requires local network access to connect to your Concord server on your PC.</string>
-</dict>
-</plist>
+This script deliberately does not compile a replacement UIKit app and never
+creates a placeholder Mach-O binary.  Concord's iOS client must be built from
+the vendored Signal-iOS workspace, preserving Signal's production client
+architecture and its iOS 26 Liquid Glass implementation.
 """
-with open(os.path.join(app_dir, "Info.plist"), "w", encoding="utf-8") as f:
-    f.write(plist_content)
 
-# 2. Create PkgInfo file
-with open(os.path.join(app_dir, "PkgInfo"), "wb") as f:
-    f.write(b"APPL????")
+from __future__ import annotations
 
-# 3. Compile REAL iOS UIKit ARM64 binary with Clang on macOS CI
-executable_path = os.path.join(app_dir, "Concord")
-main_m_path = os.path.join(base_dir, "clients", "ios", "main.m")
+import argparse
+import shutil
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
 
-compiled_successfully = False
 
-if sys.platform == "darwin":
-    try:
-        sdk_path = subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"]).decode("utf-8").strip()
-        cmd = [
-            "clang",
-            "-arch", "arm64",
-            "-isysroot", sdk_path,
-            "-miphoneos-version-min=15.0",
-            "-framework", "UIKit",
-            "-framework", "Foundation",
-            "-o", executable_path,
-            main_m_path
-        ]
-        print(f"[BUILD] Compiling UIKit ARM64 iOS App Binary with Clang: {' '.join(cmd)}")
-        subprocess.check_call(cmd)
-        compiled_successfully = True
-        print("[SUCCESS] Concord UIKit ARM64 Binary compiled successfully!")
-    except Exception as e:
-        print(f"[WARN] Clang UIKit build error: {e}")
+ROOT = Path(__file__).resolve().parents[1]
+IOS_ROOT = ROOT / "clients" / "ios"
+WORKSPACE = IOS_ROOT / "Signal.xcworkspace"
 
-if not compiled_successfully:
-    print("[INFO] Packaging fallback application bundle...")
-    fallback_binary = os.path.join(base_dir, "clients", "ios", "Concord")
-    if os.path.exists(fallback_binary):
-        shutil.copy(fallback_binary, executable_path)
-    else:
-        with open(executable_path, "wb") as f:
-            f.write(b"\xcf\xfa\xed\xfe" + b"\x00" * 4096)
 
-# 4. Package into Concord.ipa
-ipa_local_path = os.path.join(base_dir, "Concord.ipa")
-downloads_dir = os.path.expanduser("~/Downloads")
-downloads_path = os.path.join(downloads_dir, "Concord.ipa")
+def run(command: list[str], *, cwd: Path) -> None:
+    print("[BUILD]", " ".join(command))
+    subprocess.run(command, cwd=cwd, check=True)
 
-def zip_directory(folder_path, zip_path):
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                abs_path = os.path.join(root, file)
-                rel_path = os.path.relpath(abs_path, os.path.dirname(folder_path))
-                zipf.write(abs_path, rel_path)
 
-zip_directory(payload_dir, ipa_local_path)
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--archive-path",
+        type=Path,
+        default=ROOT / "build" / "Signal.xcarchive",
+        help="Output path for the Xcode archive.",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=Path,
+        default=ROOT / "build" / "Signal.ipa",
+        help="Output path for the exported IPA.",
+    )
+    parser.add_argument(
+        "--team-id",
+        help="Apple Developer Team ID used for signing.",
+    )
+    parser.add_argument(
+        "--configuration",
+        default="Release",
+        choices=("Debug", "Release"),
+    )
+    parser.add_argument(
+        "--unsigned",
+        action="store_true",
+        help="Build an unsigned device IPA for a sideloading tool to sign.",
+    )
+    args = parser.parse_args()
 
-if os.path.exists(downloads_dir):
-    shutil.copy(ipa_local_path, downloads_path)
-    print(f"[OK] Concord.ipa copied directly to User Downloads: {downloads_path}")
+    if sys.platform != "darwin":
+        parser.error("Packaging requires macOS with Xcode; no fallback IPA is produced.")
+    if not WORKSPACE.is_dir():
+        parser.error(f"Official Signal-iOS workspace is missing: {WORKSPACE}")
+    if not args.unsigned and not args.team_id:
+        parser.error("--team-id is required unless --unsigned is used.")
 
-print(f"[OK] Unsigned Concord.ipa successfully created at: {ipa_local_path}")
+    archive_path = args.archive_path.resolve()
+    output_path = args.output_path.resolve()
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink()
+
+    if args.unsigned:
+        derived_data = ROOT / "build" / "DerivedData"
+        if derived_data.exists():
+            shutil.rmtree(derived_data)
+        run(
+            [
+                "xcodebuild",
+                "-workspace",
+                str(WORKSPACE),
+                "-scheme",
+                "Signal",
+                "-configuration",
+                args.configuration,
+                "-sdk",
+                "iphoneos",
+                "-derivedDataPath",
+                str(derived_data),
+                "CODE_SIGNING_ALLOWED=NO",
+                "build",
+            ],
+            cwd=IOS_ROOT,
+        )
+        app_path = derived_data / "Build" / "Products" / f"{args.configuration}-iphoneos" / "Signal.app"
+        if not app_path.is_dir():
+            raise RuntimeError(f"Expected built Signal.app, found nothing at: {app_path}")
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as ipa:
+            for source_path in app_path.rglob("*"):
+                ipa.write(source_path, Path("Payload") / source_path.relative_to(app_path.parent))
+        print(f"[OK] Unsigned IPA created from Signal-iOS: {output_path}")
+        return 0
+
+    if archive_path.exists():
+        shutil.rmtree(archive_path)
+
+    run(
+        [
+            "xcodebuild",
+            "-workspace",
+            str(WORKSPACE),
+            "-scheme",
+            "Signal",
+            "-configuration",
+            args.configuration,
+            "-sdk",
+            "iphoneos",
+            "-archivePath",
+            str(archive_path),
+            f"DEVELOPMENT_TEAM={args.team_id}",
+            "archive",
+        ],
+        cwd=IOS_ROOT,
+    )
+
+    export_options = archive_path.parent / "ConcordExportOptions.plist"
+    export_options.write_text(
+        """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\"><dict>
+    <key>method</key><string>development</string>
+    <key>teamID</key><string>{team_id}</string>
+    <key>signingStyle</key><string>automatic</string>
+</dict></plist>
+""".format(team_id=args.team_id),
+        encoding="utf-8",
+    )
+    export_directory = output_path.parent / "ipa-export"
+    if export_directory.exists():
+        shutil.rmtree(export_directory)
+    run(
+        [
+            "xcodebuild",
+            "-exportArchive",
+            "-archivePath",
+            str(archive_path),
+            "-exportOptionsPlist",
+            str(export_options),
+            "-exportPath",
+            str(export_directory),
+        ],
+        cwd=IOS_ROOT,
+    )
+    ipa_files = list(export_directory.glob("*.ipa"))
+    if len(ipa_files) != 1:
+        raise RuntimeError(f"Expected one exported IPA, found: {ipa_files}")
+    shutil.move(str(ipa_files[0]), output_path)
+    print(f"[OK] Signed IPA created from Signal-iOS: {output_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

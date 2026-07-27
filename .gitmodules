@@ -1,0 +1,3 @@
+[submodule "clients/ios"]
+	path = clients/ios
+	url = https://github.com/tryvaultline/Concord-iOS.git
