@@ -5,6 +5,9 @@ on:
     branches: [ "concord/signal-foundation", "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-unsigned-ipa:
     name: Fast Build Concord.ipa (Unsigned Sideload)
