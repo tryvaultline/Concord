@@ -97,10 +97,10 @@ def main() -> int:
         if len(app_candidates) != 1:
             raise RuntimeError(f"Expected one built Signal.app, found: {app_candidates}")
         app_path = app_candidates[0]
-        run(["plutil", "-replace", "CFBundleIdentifier", "-string", "app.concord.ios", str(app_path / "Info.plist")])
-        run(["plutil", "-replace", "CFBundleDisplayName", "-string", "Concord", str(app_path / "Info.plist")])
-        run(["plutil", "-replace", "CFBundleName", "-string", "Concord", str(app_path / "Info.plist")])
-        run(["plutil", "-replace", "CFBundleExecutable", "-string", "Concord", str(app_path / "Info.plist")])
+        run(["plutil", "-replace", "CFBundleIdentifier", "-string", "app.concord.ios", str(app_path / "Info.plist")], cwd=IOS_ROOT)
+        run(["plutil", "-replace", "CFBundleDisplayName", "-string", "Concord", str(app_path / "Info.plist")], cwd=IOS_ROOT)
+        run(["plutil", "-replace", "CFBundleName", "-string", "Concord", str(app_path / "Info.plist")], cwd=IOS_ROOT)
+        run(["plutil", "-replace", "CFBundleExecutable", "-string", "Concord", str(app_path / "Info.plist")], cwd=IOS_ROOT)
         (app_path / "Signal").rename(app_path / "Concord")
         concord_app_path = app_path.with_name("Concord.app")
         app_path.rename(concord_app_path)
