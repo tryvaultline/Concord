@@ -24,7 +24,10 @@ jobs:
       - name: Checkout Concord and Signal-iOS
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Fetch Signal-iOS submodules only
+        run: git submodule update --init --recursive clients/ios
 
       - name: Verify Xcode version
         working-directory: clients/ios
