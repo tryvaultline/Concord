@@ -1,3 +1,18 @@
 [submodule "clients/ios"]
 	path = clients/ios
 	url = https://github.com/tryvaultline/Concord-iOS.git
+[submodule "services/signal-server"]
+	path = services/signal-server
+	url = https://github.com/signalapp/Signal-Server.git
+[submodule "services/storage-service"]
+	path = services/storage-service
+	url = https://github.com/signalapp/storage-service.git
+[submodule "services/registration-service"]
+	path = services/registration-service
+	url = https://github.com/signalapp/registration-service.git
+[submodule "services/calling-service"]
+	path = services/calling-service
+	url = https://github.com/signalapp/Signal-Calling-Service.git
+[submodule "dependencies/libsignal"]
+	path = dependencies/libsignal
+	url = https://github.com/signalapp/libsignal.git
