@@ -14,6 +14,8 @@
 DerivedData/
 .build/
 *.xcarchive
+build/
+.concord-auth.pid
 
 # Build & Dependencies
 node_modules/

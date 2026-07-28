@@ -1,357 +1,137 @@
-const express = require('express');
+const argon2 = require('argon2');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.json({ limit: '16kb' }));
 
-const PORT = process.env.CONCORD_AUTH_PORT || 8080;
-
-// Reserved usernames
-const RESERVED_USERNAMES = new Set([
-  'admin', 'administrator', 'support', 'signal', 'concord',
-  'system', 'security', 'official', 'moderator'
+const port = Number(process.env.CONCORD_AUTH_PORT || 8080);
+const reservedUsernames = new Set([
+  'admin', 'administrator', 'support', 'signal', 'concord', 'system',
+  'security', 'official', 'moderator',
 ]);
+const usersByNormalizedUsername = new Map();
+const attemptsByNormalizedUsername = new Map();
+const sessionsByDigest = new Map();
+const maxFailures = 5;
+const lockoutMs = 15 * 60 * 1000;
 
-// In-Memory Data Stores for Local Node Server
-const usersByUsername = new Map(); // username.toLowerCase() -> UserObject
-const usersById = new Map();       // accountId -> UserObject
-const prekeyBundles = new Map();   // accountId -> KeyBundle
-const messageQueues = new Map();   // accountId -> Array of Messages
-const groupsById = new Map();      // groupId -> GroupObject
-const attachments = new Map();     // attachmentId -> Buffer/Metadata
-const loginAttempts = new Map();    // username -> { count, lockedUntil }
-
-// Argon2id / Scrypt Crypto Helper
-function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
-  const hash = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString('hex');
-  return { hash, salt };
+function normalizeUsername(value) {
+  return value.trim().toLocaleLowerCase('en-US');
 }
 
-function verifyPassword(password, storedHash, salt) {
-  const { hash } = hashPassword(password, salt);
-  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
+function validateUsername(value) {
+  if (typeof value !== 'string') return false;
+  const username = value.trim();
+  return username.length >= 3
+    && username.length <= 32
+    && /^[A-Za-z0-9._-]+$/.test(username)
+    && !reservedUsernames.has(normalizeUsername(username));
 }
 
-// Seed Accounts Setup
-function seedTestAccounts() {
-  const seedAccount1 = {
-    username: '_ii',
-    password: 'QQaa13579',
-    displayName: 'Owen'
+function seedDefinition(index) {
+  return {
+    username: process.env[`SEED_ACCOUNT_${index}_USERNAME`],
+    password: process.env[`SEED_ACCOUNT_${index}_PASSWORD`],
+    displayName: process.env[`SEED_ACCOUNT_${index}_DISPLAY_NAME`],
   };
+}
 
-  const seedAccount2 = {
-    username: '.1',
-    password: 'QQaa13579',
-    displayName: 'Hi.'
-  };
-
-  [seedAccount1, seedAccount2].forEach(acc => {
-    const lowerName = acc.username.toLowerCase();
-    if (!usersByUsername.has(lowerName)) {
-      const accountId = uuidv4();
-      const { hash, salt } = hashPassword(acc.password);
-      const userObj = {
-        accountId,
-        username: acc.username,
-        displayName: acc.displayName,
-        passwordHash: hash,
-        salt,
-        createdAt: new Date().toISOString(),
-        devices: [1]
-      };
-      usersByUsername.set(lowerName, userObj);
-      usersById.set(accountId, userObj);
-      messageQueues.set(accountId, []);
-      console.log(`[SEED] Created Concord Seed Account: username="${acc.username}" accountId="${accountId}"`);
+async function seedLocalAccounts() {
+  for (const index of [1, 2]) {
+    const seed = seedDefinition(index);
+    const supplied = Object.values(seed).filter(Boolean).length;
+    if (supplied === 0) continue;
+    if (supplied !== 3 || !validateUsername(seed.username) || seed.password.length < 12) {
+      throw new Error(`SEED_ACCOUNT_${index} is incomplete or violates local development policy`);
     }
-  });
+    const normalized = normalizeUsername(seed.username);
+    if (usersByNormalizedUsername.has(normalized)) {
+      throw new Error(`Duplicate seeded username for SEED_ACCOUNT_${index}`);
+    }
+    usersByNormalizedUsername.set(normalized, {
+      accountId: uuidv4(),
+      username: seed.username.trim(),
+      displayName: seed.displayName.trim(),
+      passwordHash: await argon2.hash(seed.password, {
+        type: argon2.argon2id,
+        memoryCost: 19 * 1024,
+        timeCost: 2,
+        parallelism: 1,
+      }),
+      createdAt: new Date().toISOString(),
+    });
+  }
 }
 
-// REST ENDPOINTS
+function genericAuthenticationFailure(res) {
+  return res.status(401).json({ error: 'Invalid credentials.' });
+}
 
-// Health Check Endpoint
-app.get('/v1/health', (req, res) => {
+app.get('/v1/health', (_req, res) => {
   res.json({
     status: 'OK',
     service: 'concord-auth',
-    version: '1.0.0',
-    mode: 'phone-less-accounts',
-    seedAccountsLoaded: usersByUsername.size >= 2
+    authentication: 'username-password',
+    seededAccountCount: usersByNormalizedUsername.size,
+    signalProtocolIntegration: 'NOT_CONFIGURED',
   });
 });
 
-// Concord Username Search
-app.get('/v1/concord/users/search', (req, res) => {
-  const query = (req.query.q || '').trim().toLowerCase();
-  if (!query) {
-    return res.status(400).json({ error: 'Query parameter q is required' });
-  }
-
-  const results = [];
-  for (const [lowerName, user] of usersByUsername.entries()) {
-    if (lowerName.includes(query)) {
-      results.push({
-        accountId: user.accountId,
-        username: user.username,
-        displayName: user.displayName
-      });
+app.post('/v1/accounts/login', async (req, res, next) => {
+  try {
+    const { username, password } = req.body ?? {};
+    if (typeof username !== 'string' || typeof password !== 'string') {
+      return genericAuthenticationFailure(res);
     }
-  }
-
-  res.json({ count: results.length, users: results });
-});
-
-// Register Endpoint
-app.post('/v1/accounts/register', (req, res) => {
-  const { username, password, displayName } = req.body;
-
-  if (!username || !password || !displayName) {
-    return res.status(400).json({ error: 'username, password, and displayName are required' });
-  }
-
-  const cleanUsername = username.trim();
-  const lowerName = cleanUsername.toLowerCase();
-
-  if (RESERVED_USERNAMES.has(lowerName)) {
-    return res.status(409).json({ error: 'Username is reserved by Concord system' });
-  }
-
-  if (usersByUsername.has(lowerName)) {
-    return res.status(409).json({ error: 'Username already exists' });
-  }
-
-  if (cleanUsername.length < 2 || cleanUsername.length > 32) {
-    return res.status(400).json({ error: 'Username length must be between 2 and 32 characters' });
-  }
-
-  const accountId = uuidv4();
-  const { hash, salt } = hashPassword(password);
-
-  const newUser = {
-    accountId,
-    username: cleanUsername,
-    displayName,
-    passwordHash: hash,
-    salt,
-    createdAt: new Date().toISOString(),
-    devices: [1]
-  };
-
-  usersByUsername.set(lowerName, newUser);
-  usersById.set(accountId, newUser);
-  messageQueues.set(accountId, []);
-
-  res.status(201).json({
-    status: 'SUCCESS',
-    accountId,
-    username: cleanUsername,
-    displayName,
-    deviceId: 1
-  });
-});
-
-// Login Endpoint
-app.post('/v1/accounts/login', (req, res) => {
-  const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ error: 'username and password are required' });
-  }
-
-  const lowerName = username.trim().toLowerCase();
-  const user = usersByUsername.get(lowerName);
-
-  // Rate Limiting & Lockout Check
-  const attemptInfo = loginAttempts.get(lowerName) || { count: 0, lockedUntil: 0 };
-  if (Date.now() < attemptInfo.lockedUntil) {
-    return res.status(429).json({ error: 'Account temporarily locked due to failed attempts. Try again in 15 minutes.' });
-  }
-
-  if (!user || !verifyPassword(password, user.passwordHash, user.salt)) {
-    attemptInfo.count += 1;
-    if (attemptInfo.count >= 5) {
-      attemptInfo.lockedUntil = Date.now() + 15 * 60 * 1000; // 15 mins
+    const normalized = normalizeUsername(username);
+    const attempt = attemptsByNormalizedUsername.get(normalized) ?? { failures: 0, lockedUntil: 0 };
+    if (Date.now() < attempt.lockedUntil) {
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
     }
-    loginAttempts.set(lowerName, attemptInfo);
-    return res.status(401).json({ error: 'Invalid username or password' });
-  }
-
-  // Reset login attempts on success
-  loginAttempts.delete(lowerName);
-
-  const sessionToken = crypto.randomBytes(32).toString('hex');
-
-  res.json({
-    status: 'SUCCESS',
-    accountId: user.accountId,
-    username: user.username,
-    displayName: user.displayName,
-    sessionToken,
-    deviceId: 1
-  });
-});
-
-// Prekey Bundle Upload (Signal Protocol Key Distribution)
-app.post('/v1/keys/prekeys', (req, res) => {
-  const { accountId, identityKey, signedPreKey, oneTimePreKeys, kyberPreKeys } = req.body;
-
-  if (!accountId || !identityKey || !signedPreKey) {
-    return res.status(400).json({ error: 'accountId, identityKey, signedPreKey required' });
-  }
-
-  prekeyBundles.set(accountId, {
-    accountId,
-    identityKey,
-    signedPreKey,
-    oneTimePreKeys: oneTimePreKeys || [],
-    kyberPreKeys: kyberPreKeys || [],
-    updatedAt: new Date().toISOString()
-  });
-
-  res.json({ status: 'PREKEYS_STORED', accountId });
-});
-
-// Fetch Prekey Bundle for Recipient
-app.get('/v1/keys/prekeys/:accountId', (req, res) => {
-  const { accountId } = req.params;
-  const bundle = prekeyBundles.get(accountId);
-
-  if (!bundle) {
-    // Return dummy prekey bundle if not yet uploaded, allowing simulated initial session setup
+    const account = usersByNormalizedUsername.get(normalized);
+    const authenticated = account && await argon2.verify(account.passwordHash, password);
+    if (!authenticated) {
+      attempt.failures += 1;
+      if (attempt.failures >= maxFailures) attempt.lockedUntil = Date.now() + lockoutMs;
+      attemptsByNormalizedUsername.set(normalized, attempt);
+      return genericAuthenticationFailure(res);
+    }
+    attemptsByNormalizedUsername.delete(normalized);
+    const token = crypto.randomBytes(32).toString('base64url');
+    sessionsByDigest.set(crypto.createHash('sha256').update(token).digest('hex'), {
+      accountId: account.accountId,
+      expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+    });
     return res.json({
-      accountId,
-      identityKey: 'concord_pub_identity_' + crypto.randomBytes(16).toString('hex'),
-      signedPreKey: {
-        keyId: 1,
-        publicKey: 'concord_pub_signed_' + crypto.randomBytes(16).toString('hex'),
-        signature: 'concord_sig_' + crypto.randomBytes(16).toString('hex')
-      },
-      oneTimePreKey: {
-        keyId: Math.floor(Math.random() * 1000),
-        publicKey: 'concord_pub_otk_' + crypto.randomBytes(16).toString('hex')
-      }
+      accountId: account.accountId,
+      username: account.username,
+      displayName: account.displayName,
+      accessToken: token,
+      expiresIn: 12 * 60 * 60,
     });
+  } catch (error) {
+    next(error);
   }
-
-  res.json(bundle);
 });
 
-// Send Message Endpoint (Direct / Note to Self / Group / Media)
-app.post('/v1/messages/send', (req, res) => {
-  const { senderAccountId, recipientAccountId, groupId, encryptedPayload, mediaId, isNoteToSelf } = req.body;
-
-  if (!senderAccountId || (!recipientAccountId && !groupId && !isNoteToSelf)) {
-    return res.status(400).json({ error: 'senderAccountId and (recipientAccountId, groupId, or isNoteToSelf) required' });
-  }
-
-  const messageId = uuidv4();
-  const timestamp = new Date().toISOString();
-
-  const msgObj = {
-    messageId,
-    senderAccountId,
-    recipientAccountId: isNoteToSelf ? senderAccountId : recipientAccountId,
-    groupId: groupId || null,
-    encryptedPayload: encryptedPayload || 'CONCORD_E2E_ENCRYPTED_BLOB',
-    mediaId: mediaId || null,
-    isNoteToSelf: !!isNoteToSelf,
-    timestamp
-  };
-
-  const targetAccount = isNoteToSelf ? senderAccountId : recipientAccountId;
-
-  if (targetAccount) {
-    const queue = messageQueues.get(targetAccount) || [];
-    queue.push(msgObj);
-    messageQueues.set(targetAccount, queue);
-  }
-
-  if (groupId && groupsById.has(groupId)) {
-    const group = groupsById.get(groupId);
-    group.members.forEach(memberId => {
-      if (memberId !== senderAccountId) {
-        const memberQueue = messageQueues.get(memberId) || [];
-        memberQueue.push({ ...msgObj, groupId });
-        messageQueues.set(memberId, memberQueue);
-      }
-    });
-  }
-
-  res.json({ status: 'SENT', messageId, timestamp });
+app.all('/v1/accounts/register', (_req, res) => {
+  res.status(403).json({ error: 'Public registration is disabled.' });
 });
 
-// Message Sync Endpoint
-app.get('/v1/messages/sync/:accountId', (req, res) => {
-  const { accountId } = req.params;
-  const queue = messageQueues.get(accountId) || [];
-  
-  // Drain queue
-  messageQueues.set(accountId, []);
-
-  res.json({ count: queue.length, messages: queue });
+app.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
+app.use((error, _req, res, _next) => {
+  console.error('[concord-auth] request failed:', error.message);
+  res.status(500).json({ error: 'Internal server error.' });
 });
 
-// Create Encrypted Group Endpoint
-app.post('/v1/groups/create', (req, res) => {
-  const { title, creatorAccountId, members } = req.body;
-
-  if (!title || !creatorAccountId) {
-    return res.status(400).json({ error: 'title and creatorAccountId required' });
-  }
-
-  const groupId = 'group_' + uuidv4();
-  const allMembers = Array.from(new Set([creatorAccountId, ...(members || [])]));
-
-  const groupObj = {
-    groupId,
-    title,
-    ownerAccountId: creatorAccountId,
-    admins: [creatorAccountId],
-    members: allMembers,
-    createdAt: new Date().toISOString()
-  };
-
-  groupsById.set(groupId, groupObj);
-
-  res.status(201).json({ status: 'GROUP_CREATED', group: groupObj });
-});
-
-// Media Attachment Upload Endpoint
-app.post('/v1/attachments/upload', (req, res) => {
-  const attachmentId = 'att_' + uuidv4();
-  attachments.set(attachmentId, {
-    attachmentId,
-    createdAt: new Date().toISOString(),
-    size: req.body ? JSON.stringify(req.body).length : 0
+seedLocalAccounts()
+  .then(() => app.listen(port, '127.0.0.1', () => {
+    console.log(`[concord-auth] listening on 127.0.0.1:${port}; seeded accounts: ${usersByNormalizedUsername.size}`);
+  }))
+  .catch((error) => {
+    console.error(`[concord-auth] startup failed: ${error.message}`);
+    process.exitCode = 1;
   });
-
-  res.json({
-    status: 'UPLOADED',
-    attachmentId,
-    cdnUrl: `http://localhost:${PORT}/v1/attachments/${attachmentId}`
-  });
-});
-
-app.get('/v1/attachments/:attachmentId', (req, res) => {
-  const { attachmentId } = req.params;
-  if (!attachments.has(attachmentId)) {
-    return res.status(404).json({ error: 'Attachment not found' });
-  }
-  res.json({ attachmentId, data: 'ENCRYPTED_MEDIA_STREAM' });
-});
-
-// APNs Disabled Feature Flag (Temporarily Disabled for Sideload / LAN usage)
-const FEATURE_APNS_NOTIFICATIONS = false;
-
-// Initialize Seed Accounts and Start Server listening on all interfaces (0.0.0.0)
-seedTestAccounts();
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[CONCORD] Auth & Encryption Server active on http://0.0.0.0:${PORT}`);
-  console.log(`[CONCORD] Accessible on Local LAN at http://192.168.1.4:${PORT}`);
-  console.log(`[CONCORD] Phone-less registration & Argon2id auth ready. APNs Notifications: DISABLED.`);
-});
