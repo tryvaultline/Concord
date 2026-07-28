@@ -87,6 +87,7 @@ def main() -> int:
                 "iphoneos",
                 "-derivedDataPath",
                 str(derived_data),
+                "-quiet",
                 "CODE_SIGNING_ALLOWED=NO",
                 "build",
             ],
