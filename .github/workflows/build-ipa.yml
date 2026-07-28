@@ -41,7 +41,7 @@ jobs:
         run: make dependencies
 
       - name: Build and package IPA
-        run: python3 scripts/package_ipa.py --unsigned
+        run: python3 scripts/package_ipa.py --unsigned --configuration Debug
 
       - name: Verify packaged IPA identity
         run: |
