@@ -101,6 +101,19 @@ def main() -> int:
         run(["plutil", "-replace", "CFBundleDisplayName", "-string", "Concord", str(app_path / "Info.plist")], cwd=IOS_ROOT)
         run(["plutil", "-replace", "CFBundleName", "-string", "Concord", str(app_path / "Info.plist")], cwd=IOS_ROOT)
         run(["plutil", "-replace", "CFBundleExecutable", "-string", "Concord", str(app_path / "Info.plist")], cwd=IOS_ROOT)
+        for extension_path in app_path.rglob("*.appex"):
+            extension_bundle_id = f"app.concord.ios.{extension_path.stem}"
+            run(
+                [
+                    "plutil",
+                    "-replace",
+                    "CFBundleIdentifier",
+                    "-string",
+                    extension_bundle_id,
+                    str(extension_path / "Info.plist"),
+                ],
+                cwd=IOS_ROOT,
+            )
         (app_path / "Signal").rename(app_path / "Concord")
         concord_app_path = app_path.with_name("Concord.app")
         app_path.rename(concord_app_path)
