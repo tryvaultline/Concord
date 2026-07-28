@@ -26,7 +26,7 @@ function normalizeUsername(value) {
 function validateUsername(value) {
   if (typeof value !== 'string') return false;
   const username = value.trim();
-  return username.length >= 3
+  return username.length >= 2
     && username.length <= 32
     && /^[A-Za-z0-9._-]+$/.test(username)
     && !reservedUsernames.has(normalizeUsername(username));
@@ -45,7 +45,7 @@ async function seedLocalAccounts() {
     const seed = seedDefinition(index);
     const supplied = Object.values(seed).filter(Boolean).length;
     if (supplied === 0) continue;
-    if (supplied !== 3 || !validateUsername(seed.username) || seed.password.length < 12) {
+    if (supplied !== 3 || !validateUsername(seed.username) || seed.password.length < 8) {
       throw new Error(`SEED_ACCOUNT_${index} is incomplete or violates local development policy`);
     }
     const normalized = normalizeUsername(seed.username);
