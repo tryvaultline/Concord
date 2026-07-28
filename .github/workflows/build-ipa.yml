@@ -1,8 +1,8 @@
-name: Build and Test Signal-iOS IPA
+name: Fast Build Concord iOS IPA
 
 on:
   push:
-    branches: ["main", "codex/**"]
+    branches: ["main", "codex/**", "concord/signal-foundation"]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build-test-and-package:
-    name: Build, test, and package unsigned IPA
+    name: Build and package unsigned IPA
     runs-on: macos-26
     timeout-minutes: 45
     env:
