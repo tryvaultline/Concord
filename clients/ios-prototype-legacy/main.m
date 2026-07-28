@@ -108,7 +108,7 @@
     [card addSubview:pwLabel];
 
     self.passwordField = [[UITextField alloc] initWithFrame:CGRectMake(16, 106, width - 72, 40)];
-    self.passwordField.text = @"QQaa13579";
+    self.passwordField.text = @"";
     self.passwordField.secureTextEntry = YES;
     self.passwordField.textColor = [UIColor whiteColor];
     self.passwordField.backgroundColor = [UIColor colorWithRed:0.07 green:0.09 blue:0.15 alpha:1.0];
@@ -174,12 +174,12 @@
 
 - (void)setSeedUser1 {
     self.usernameField.text = @"_ii";
-    self.passwordField.text = @"QQaa13579";
+    self.passwordField.text = @"";
 }
 
 - (void)setSeedUser2 {
     self.usernameField.text = @".1";
-    self.passwordField.text = @"QQaa13579";
+    self.passwordField.text = @"";
 }
 
 - (void)handleLogin {

@@ -8,6 +8,7 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '16kb' }));
 
 const port = Number(process.env.CONCORD_AUTH_PORT || 8080);
+const bindHost = process.env.CONCORD_AUTH_BIND_HOST || '127.0.0.1';
 const reservedUsernames = new Set([
   'admin', 'administrator', 'support', 'signal', 'concord', 'system',
   'security', 'official', 'moderator',
@@ -128,8 +129,8 @@ app.use((error, _req, res, _next) => {
 });
 
 seedLocalAccounts()
-  .then(() => app.listen(port, '127.0.0.1', () => {
-    console.log(`[concord-auth] listening on 127.0.0.1:${port}; seeded accounts: ${usersByNormalizedUsername.size}`);
+  .then(() => app.listen(port, bindHost, () => {
+    console.log(`[concord-auth] listening on ${bindHost}:${port}; seeded accounts: ${usersByNormalizedUsername.size}`);
   }))
   .catch((error) => {
     console.error(`[concord-auth] startup failed: ${error.message}`);

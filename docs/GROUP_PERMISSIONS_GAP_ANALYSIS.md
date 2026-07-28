@@ -1,27 +1,14 @@
-# Concord Group Permissions Gap Analysis
+# Group Permissions Gap Analysis
 
-This document reviews upstream Signal Group V2 permissions and documents proposed Concord extensions.
+The pinned Signal-iOS client contains upstream Group V2 support. Concord has not changed its encrypted group state or permission model.
 
-## Upstream Signal Group V2 Permissions Matrix
+| Requirement | Upstream state | Concord change status |
+|---|---|---|
+| Owner, administrator, member | Present upstream | No change |
+| Adding/removing members and group metadata controls | Present upstream | No change |
+| Sending restrictions / announcement mode | Requires verification against the pinned server and client | Not implemented |
+| Pinning messages | Local UI behavior must be verified | Not implemented |
+| Deleting other members' messages | Not an upstream permission extension | Not implemented |
+| Per-member exceptions | Not an upstream Group V2 primitive | Not implemented |
 
-Signal Groups use Signal Group V2 protocol backed by client-side encrypted credentials and ZK-proof membership checks.
-
-| Feature / Action | Signal Group V2 Default | Concord Implementation | Notes / Gap Status |
-|---|---|---|---|
-| Group Ownership | Creator has Owner role | **Preserved** | Single/multi-owner support. |
-| Admin Role | Granted by Owners | **Preserved** | Admins can invite and manage members. |
-| Member Role | Standard participant | **Preserved** | Standard message & media privileges. |
-| Edit Group Info | Admins Only or All Members | **Configurable** | Controlled via Group Master Key attribute. |
-| Send Messages | All Members or Admins Only | **Configurable** | Announcement channel mode support. |
-| Add Members | Admins Only or All Members | **Configurable** | Admin approval mode supported. |
-| Remove Members | Admins Only | **Preserved** | Admins/Owners can evict participants. |
-| Pin Messages | Local UI client setting | **Extended** | Sync pinned message list in Group State. |
-| Delete Member Message | Sender only | **Proposed Extension** | Admin message deletion requires group admin signature extension. |
-| Invite Links | Supported with Admin Approval option | **Preserved** | Invite links resolve using Concord Username lookup. |
-
----
-
-## Technical Recommendations for Concord Extensions
-1. Preserve Signal Group V2 encrypted state format (`GroupChange`, `GroupState`) to keep Signal Protocol security guarantees intact.
-2. Implement **Announcement Mode** ("Only Admins can send messages") via existing `GroupAccessControl` flags.
-3. Keep group metadata encrypted end-to-end with the Group Master Key.
+No group-permission extension will be added until the local Signal-compatible group service passes two-account encrypted group-message tests.

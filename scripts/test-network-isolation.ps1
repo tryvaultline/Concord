@@ -1,6 +1,6 @@
-# Concord Network Isolation Automated Audit Script
+# Concord Network Isolation Readiness Audit Script
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Auditing Concord Network Isolation..." -ForegroundColor Cyan
+Write-Host "Auditing Concord Network-Isolation Readiness..." -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 $forbiddenDomains = @(
@@ -16,26 +16,13 @@ $forbiddenDomains = @(
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $rootPath = "$scriptPath\.."
 
-$violatingFiles = @()
+$matches = Get-ChildItem -Path "$rootPath\clients\ios" -Recurse -File -Include "*.swift", "*.m", "*.mm", "*.plist", "*.xcconfig" |
+    Select-String -Pattern ($forbiddenDomains -join '|')
 
-Get-ChildItem -Path "$rootPath\configuration", "$rootPath\services\concord-auth" -Recurse -File -Include "*.json", "*.env", "*.js", "*.xcconfig" | ForEach-Object {
-    $content = Get-Content $_.FullName -Raw
-    foreach ($domain in $forbiddenDomains) {
-        if ($content -match [regex]::Escape($domain)) {
-            $violatingFiles += [PSCustomObject]@{
-                File = $_.FullName
-                Domain = $domain
-            }
-        }
-    }
-}
-
-if ($violatingFiles.Count -eq 0) {
-    Write-Host "✅ Audit Result: NO_UNINTENDED_SIGNAL_NETWORK_DEPENDENCIES" -ForegroundColor Green
-    Write-Host "All external Signal domain dependencies have been successfully isolated to local endpoints." -ForegroundColor Green
-    Exit 0
-} else {
-    Write-Host "❌ Audit Failed! Unintended Signal domains found:" -ForegroundColor Red
-    $violatingFiles | Format-Table -AutoSize
+if ($matches) {
+    Write-Host "NOT_READY: upstream Signal endpoint references remain in the iOS source." -ForegroundColor Yellow
+    $matches | Select-Object -First 50 Path, LineNumber, Line | Format-Table -AutoSize
     Exit 1
 }
+
+Write-Host "SOURCE_SCAN_PASSED; runtime traffic capture is still required before claiming network isolation." -ForegroundColor Yellow

@@ -2,7 +2,7 @@
 
 **Concord** is an independent, phone-less secure messaging ecosystem built on official **Signal** open-source foundations (`Signal-iOS`, `Signal-Server`, `libsignal`).
 
-It replaces telephone number authentication with **Username, Password, and Display Name** accounts while retaining 100% end-to-end encryption semantics (Signal Protocol double ratchet, Curve25519 prekeys, post-quantum Kyber prekeys, sealed sender, encrypted group v2).
+The target design replaces telephone-number authentication with **Username, Password, and Display Name** accounts while retaining the upstream Signal protocol implementation. This repository does **not** yet have a complete local Signal-compatible message stack; no end-to-end messaging claim is made until it is demonstrated against that stack.
 
 ---
 
@@ -81,19 +81,16 @@ python3 scripts/package_ipa.py --team-id YOUR_APPLE_TEAM_ID
 
 For an unsigned IPA that a sideloading tool will sign, use `python3 scripts/package_ipa.py --unsigned`.
 
-### 4. Run End-to-End Test Suite
+### 4. Run the current local authentication test
 ```powershell
 .\scripts\test-concord-e2e.ps1
 ```
 
 ---
 
-## Pre-seeded Development Accounts
+## Local development accounts
 
-| Username | Password | Display Name | Internal Concord Account ID (ACI) |
-|---|---|---|---|
-| `_ii` | `QQaa13579` | `Owen` | Dynamic Random UUID v4 |
-| `.1` | `QQaa13579` | `Hi.` | Dynamic Random UUID v4 |
+Create two local-only seed accounts in `.env.local`, which is ignored by Git. Use `.env.example` as the template. No usernames or passwords are stored in this repository.
 
 ---
 
@@ -103,4 +100,4 @@ Verify zero connections are made to `signal.org` domains:
 ```powershell
 .\scripts\test-network-isolation.ps1
 ```
-Result: `NO_UNINTENDED_SIGNAL_NETWORK_DEPENDENCIES`
+The script is preparatory only until the complete local Signal-compatible stack is running. It must not be treated as evidence of network isolation for the iOS client yet.

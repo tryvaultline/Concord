@@ -8,8 +8,9 @@ try {
     if ($res.status -eq "OK") {
         Write-Host "✅ Concord Auth Service: HEALTHY" -ForegroundColor Green
         Write-Host "   Service: $($res.service)" -ForegroundColor Gray
-        Write-Host "   Mode: $($res.mode)" -ForegroundColor Gray
-        Write-Host "   Seed Accounts Loaded: $($res.seedAccountsLoaded)" -ForegroundColor Gray
+        Write-Host "   Authentication: $($res.authentication)" -ForegroundColor Gray
+        Write-Host "   Seeded Accounts Loaded: $($res.seededAccountCount)" -ForegroundColor Gray
+        Write-Host "   Signal Protocol Integration: $($res.signalProtocolIntegration)" -ForegroundColor Gray
         Exit 0
     } else {
         Write-Host "❌ Concord Auth Service: UNHEALTHY" -ForegroundColor Red
