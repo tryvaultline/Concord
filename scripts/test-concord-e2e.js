@@ -3,16 +3,20 @@
 // stack; this script must never report an E2E messaging success by itself.
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const fs = require('fs/promises');
+const os = require('os');
 const path = require('path');
 
 const port = 18080;
 const password = `local-${crypto.randomBytes(24).toString('hex')}`;
 const authDirectory = path.join(__dirname, '..', 'services', 'concord-auth');
+const dataPath = path.join(os.tmpdir(), `concord-auth-e2e-${process.pid}-${crypto.randomUUID()}.json`);
 const child = spawn(process.execPath, ['server.js'], {
   cwd: authDirectory,
   env: {
     ...process.env,
     CONCORD_AUTH_PORT: String(port),
+    CONCORD_AUTH_DATA_PATH: dataPath,
     SEED_ACCOUNT_1_USERNAME: 'localalpha',
     SEED_ACCOUNT_1_PASSWORD: password,
     SEED_ACCOUNT_1_DISPLAY_NAME: 'Local Alpha',
@@ -37,7 +41,7 @@ async function main() {
   });
 
   const health = await request('/v1/health').then((response) => response.json());
-  if (health.seededAccountCount !== 1 || health.signalProtocolIntegration !== 'NOT_CONFIGURED') {
+  if (health.seededAccountCount !== 1 || health.signalProtocolIntegration !== 'PUBLIC_KEY_DIRECTORY_ONLY') {
     throw new Error('unexpected health response');
   }
   const login = await request('/v1/accounts/login', {
@@ -47,6 +51,22 @@ async function main() {
   });
   const loginBody = await login.json();
   if (!login.ok || typeof loginBody.accessToken !== 'string') throw new Error('login failed');
+  const publicDevice = await request('/v1/devices', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${loginBody.accessToken}`,
+    },
+    body: JSON.stringify({
+      deviceId: 1,
+      registrationId: 1,
+      identityKey: 'aGVsbG8',
+      signedPreKey: 'c2lnbmVk',
+      pqLastResortPreKey: 'cHE',
+      oneTimePreKeys: ['b25l'],
+    }),
+  });
+  if (publicDevice.status !== 201) throw new Error('public device key storage failed');
   const registration = await request('/v1/accounts/register', { method: 'POST' });
   if (registration.status !== 403) throw new Error('public registration is enabled');
   console.log('CONCORD_AUTH_LOCAL_LOGIN_TEST_PASSED');
@@ -55,4 +75,7 @@ async function main() {
 
 main()
   .catch((error) => { console.error(error.message); process.exitCode = 1; })
-  .finally(() => child.kill());
+  .finally(async () => {
+    child.kill();
+    await fs.rm(dataPath, { force: true });
+  });

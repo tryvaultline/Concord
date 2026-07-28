@@ -16,6 +16,7 @@ DerivedData/
 *.xcarchive
 build/
 .concord-auth.pid
+services/concord-auth/data/
 
 # Build & Dependencies
 node_modules/
